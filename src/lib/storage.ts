@@ -9,9 +9,10 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { put as blobPut, del as blobDel } from "@vercel/blob";
+import { put as blobPut, del as blobDel, head as blobHead } from "@vercel/blob";
 
 const driver = process.env.STORAGE_DRIVER || "local";
+
 const base = path.resolve(
   /* turbopackIgnore: true */ process.env.LOCAL_STORAGE_PATH || "data/media",
 );
@@ -45,7 +46,6 @@ export async function put(key: string, body: Buffer, type: string) {
       }),
     );
   } else if (driver === "blob") {
-    // Vercel Blob: usa o pacote oficial
     await blobPut(key, body, {
       access: "public",
       contentType: type,
@@ -60,20 +60,21 @@ export async function put(key: string, body: Buffer, type: string) {
 }
 
 export async function remove(key: string) {
-  if (driver === "s3")
+  if (driver === "s3") {
     await client.send(
       new DeleteObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }),
     );
-  else if (driver === "blob") {
+  } else if (driver === "blob") {
     try {
       await blobDel(key);
-    } catch (e) {
-      // Ignora se o blob não existir
+    } catch {
+      // Ignora se o blob já não existir
     }
-  } else
+  } else {
     await unlink(local(key)).catch((e) => {
       if (e.code !== "ENOENT") throw e;
     });
+  }
 }
 
 export async function read(key: string): Promise<Readable> {
@@ -82,13 +83,30 @@ export async function read(key: string): Promise<Readable> {
       new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }),
     );
     return result.Body as Readable;
-  } else if (driver === "blob") {
-    // Constrói a URL pública do Blob e faz fetch
-    const url = `https://${process.env.BLOB_STORE_ID}.public.blob.vercel-storage.com/${key}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Blob não encontrado: ${key}`);
-    return Readable.fromWeb(res.body as any);
   }
+
+  if (driver === "blob") {
+    try {
+      // Usa o SDK para obter o URL real do blob
+      const info = await blobHead(key);
+      const res = await fetch(info.url);
+      if (!res.ok) throw new Error(`Erro ao ler blob: ${res.status}`);
+      return Readable.fromWeb(res.body as any);
+    } catch (err) {
+      // Fallback: tenta construir a URL previsível
+      const storeName =
+        process.env.BLOB_STORE_NAME || "memoryalbum-blob";
+      const url = `https://${storeName}.public.blob.vercel-storage.com/${key}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(
+          `Blob não encontrado: ${key} (${res.status}) — ${(err as Error).message}`,
+        );
+      }
+      return Readable.fromWeb(res.body as any);
+    }
+  }
+
   return createReadStream(local(key));
 }
 
