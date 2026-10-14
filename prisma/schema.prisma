@@ -1,0 +1,138 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Visibility {
+  PUBLIC
+  SECRET
+  PASSWORD
+}
+
+enum Theme {
+  AUTO
+  LIGHT
+  DARK
+}
+
+model Album {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  title         String
+  subtitle      String        @default("Um dia para recordar.")
+  eventDate     DateTime
+  visibility    Visibility    @default(SECRET)
+  theme         Theme         @default(AUTO)
+  secretHash    String?
+  passwordHash  String?
+  accessVersion Int           @default(1)
+  coverPhotoId  String?
+  categories    Category[]
+  photos        Photo[]
+  visits        Visit[]
+  downloads     DownloadLog[]
+  jobs          ZipJob[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Category {
+  id           String  @id @default(cuid())
+  albumId      String
+  album        Album   @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  name         String
+  order        Int     @default(0)
+  coverPhotoId String?
+  photos       Photo[]
+
+  @@index([albumId, order])
+}
+
+model Photo {
+  id            String        @id @default(cuid())
+  albumId       String
+  album         Album         @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  categoryId    String
+  category      Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  alt           String
+  width         Int
+  height        Int
+  originalKey   String
+  largeKey      String
+  thumbnailKeys Json
+  size          Int
+  mime          String
+  extension     String
+  exif          Json?
+  order         Int           @default(0)
+  featured      Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  downloads     DownloadLog[]
+
+  @@index([albumId, categoryId, order])
+}
+
+model Admin {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id
+  adminId   String
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+model RateBucket {
+  key       String   @id
+  hits      Int      @default(1)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+model Visit {
+  id        String   @id @default(cuid())
+  albumId   String
+  album     Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([albumId, createdAt])
+}
+
+model DownloadLog {
+  id         String   @id @default(cuid())
+  albumId    String
+  album      Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  photoId    String?
+  photo      Photo?   @relation(fields: [photoId], references: [id], onDelete: SetNull)
+  categoryId String?
+  type       String
+  createdAt  DateTime @default(now())
+
+  @@index([albumId, createdAt])
+}
+
+model ZipJob {
+  id            String   @id @default(cuid())
+  albumId       String
+  album         Album    @relation(fields: [albumId], references: [id], onDelete: Cascade)
+  categoryId    String?
+  accessVersion Int
+  status        String   @default("PENDING")
+  total         Int
+  completed     Int      @default(0)
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+}

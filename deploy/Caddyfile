@@ -1,0 +1,14 @@
+# Substitua o domínio e configure APP_URL=https://memoryalbum.com
+memoryalbum.com {
+    encode zstd gzip
+    request_body {
+        max_size 26MB
+    }
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Forwarded-For {remote_host}
+        flush_interval -1
+        transport http {
+            read_timeout 1h
+        }
+    }
+}
